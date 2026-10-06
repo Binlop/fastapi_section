@@ -19,3 +19,6 @@ posts: list[dict] = [
     },
 ]
 next_post_id = 4
+
+users = []
+next_user_id = 1
