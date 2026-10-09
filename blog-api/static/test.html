@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>WS JSON — post 3</title>
+    <style>
+        body { font-family: monospace; margin: 20px; max-width: 800px; }
+        #status { padding: 8px; margin-bottom: 10px; border-radius: 4px; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        #messages { list-style: none; padding: 0; }
+        #messages li {
+            padding: 8px;
+            margin: 4px 0;
+            border-left: 3px solid #007bff;
+            background: #f8f9fa;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .new_comment { border-left-color: #28a745; }
+        .message { border-left-color: #ffc107; }
+        form { margin-top: 20px; display: flex; gap: 8px; }
+        input { flex: 1; padding: 8px; }
+        button { padding: 8px 16px; }
+    </style>
+</head>
+<body>
+    <!-- <h1>Comments for post 3</h1> -->
+    <h1>Comments for post <span id="postIdLabel"></span></h1>
+    <script>
+        document.getElementById("postIdLabel").textContent = postId;
+    </script>
+
+    <div id="status" class="disconnected">Connecting…</div>
+
+    <ul id="messages"></ul>
+
+    <form onsubmit="event.preventDefault(); send();">
+        <input type="text" id="input" placeholder="Сообщение..." autocomplete="off" autofocus>
+        <button>Send</button>
+    </form>
+
+    <script>
+        const params = new URLSearchParams(location.search);
+        const postId = params.get("post_id") ?? "1";   // дефолт
+
+        const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+        const url = `${protocol}//${location.host}/ws/posts/${postId}/comments`;
+
+        const statusEl = document.getElementById("status");
+        const messagesEl = document.getElementById("messages");
+        const inputEl = document.getElementById("input");
+
+        const ws = new WebSocket(url);
+
+        ws.onopen = () => {
+            statusEl.textContent = `Connected: ${url}`;
+            statusEl.className = "connected";
+        };
+
+        ws.onclose = (e) => {
+            statusEl.textContent = `Disconnected (${e.code}) ${e.reason || ""}`;
+            statusEl.className = "disconnected";
+        };
+
+        ws.onerror = (e) => {
+            console.error("WS error", e);
+        };
+
+        ws.onmessage = (event) => {
+            let data;
+            try {
+                data = JSON.parse(event.data);      // ← парсим JSON
+            } catch {
+                data = { raw: event.data };         // fallback, если не JSON
+            }
+
+            const li = document.createElement("li");
+            li.className = data.type || "";
+            li.textContent = JSON.stringify(data, null, 2);   // красиво
+            messagesEl.appendChild(li);
+
+            // автоскролл
+            li.scrollIntoView({ behavior: "smooth", block: "end" });
+        };
+
+        function send() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+            ws.send(text);                          // отправляем строку
+            inputEl.value = "";
+        }
+    </script>
+</body>
+</html>

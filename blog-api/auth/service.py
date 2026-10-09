@@ -1,38 +1,43 @@
 from passlib.context import CryptContext
-from core.exceptions import InvalidCredentialsError
+from core.exceptions import InvalidCredentialsError, EmailAlreadyExistsError, UsernameAlreadyExistsError, UserAlreadyDeletedError
 from core.security import create_access_token
-from api.deps import User
-from auth.schemas import UserRegister
-import storage
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+from db.uow import UnitOfWork
+from auth.models import User
+from auth.exceptions import UserNotFoundError
+from auth.repository import UserRepository
+from auth.domain import RegisterUserCommand, LoginUserCommand
 
-async def create_user(user: UserRegister) -> User:
-    hashed = pwd_context.hash(user.password)
-    user_data = {
-        "id": storage.next_user_id,
-        "email": user.email,
-        "password": hashed,
-        "is_active": "true",
-    }
-    storage.users.append(user_data)
-    storage.next_user_id += 1
-    print(storage.users)
-    print(storage.next_user_id)
-    user_without_password = user_data.copy()
-    user_without_password.pop('password')
-    return user_without_password
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
+class UserService:
 
-async def login_user(user: UserRegister) -> dict:
-    user_from_db = next((u for u in storage.users if u['email'] == user.email), None)
-    if not user_from_db:
-        raise InvalidCredentialsError()
-    hashed_password = user_from_db['password']
-    verify = pwd_context.verify(user.password, hashed_password)
-    if not verify:
-        raise InvalidCredentialsError()
-    data_to_token = {'sub': str(user_from_db['id'])}
-    token = create_access_token(data_to_token)
-    print(token)
-    return token
-    
+    def __init__(self, uow: UnitOfWork):
+        self.user_repository = UserRepository(uow)
+
+    async def register(self, cmd: RegisterUserCommand) -> User:
+        if await self.user_repository.get_by_email(cmd.email):
+            raise EmailAlreadyExistsError()
+        if await self.user_repository.get_by_username(cmd.username):
+            raise UsernameAlreadyExistsError()
+        user = await self.user_repository.create_user(cmd)
+        return user
+
+    async def login(self, cmd: LoginUserCommand) -> User:
+        if "@" in cmd.identifier:
+            user = await self.user_repository.get_by_email(cmd.identifier)
+        else:
+            user = await self.user_repository.get_by_username(cmd.identifier)
+        if not user or not pwd_context.verify(secret=cmd.password, hash=user.hashed_password):
+            raise InvalidCredentialsError()
+        data_to_token = {'sub': str(user.id)}
+        token = create_access_token(data_to_token)
+        return token
+
+    async def delete(self, user_id: int) -> None:
+        user = await self.user_repository.get_by_user_id(id=user_id)
+        if user is None:
+            raise UserNotFoundError(user_id)
+        if not user.is_active:
+            raise UserAlreadyDeletedError(user_id)
+        user.is_active = False
+        
